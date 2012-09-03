@@ -4,6 +4,10 @@
     <Identity Id="8ce02edb-a927-4193-a901-26af814c83ca" Version="1.0" Language="en-US" Publisher="Francois Picalausa" />
     <DisplayName>Color Column</DisplayName>
     <Description xml:space="preserve">This addin adds a colored text column at the specified column.</Description>
+    <MoreInfo>https://github.com/fpicalausa/Color-Column</MoreInfo>
+    <License>LICENSE</License>
+    <Icon>Resources\Package.ico</Icon>
+    <PreviewImage>screenshot.png</PreviewImage>
   </Metadata>
   <Installation InstalledByMsi="false">
     <InstallationTarget Id="Microsoft.VisualStudio.Pro" Version="11.0" />
