@@ -15,7 +15,7 @@ Features
 Screenshot
 ----------
 
-![Highlighted columns behind source code](screenshot.png "Color columns")
+![Highlighted columns behind source code](raw.github.com/fpicalausa/Color-Column/master/screenshot.png "Color columns")
 
 Hacking this extension
 ----------------------
