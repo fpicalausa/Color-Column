@@ -233,8 +233,13 @@ namespace ColorColumn
         {
             paintColumns(forced);
             _adornmentLayer.RemoveAllAdornments();
-            _adornmentLayer.AddAdornment(AdornmentPositioningBehavior.ViewportRelative,
-                null, null, _cursorColumnImage, null);
+
+            if (_settings.CursorColumn)
+            {
+                _adornmentLayer.AddAdornment(AdornmentPositioningBehavior.ViewportRelative,
+                    null, null, _cursorColumnImage, null);
+            }
+
             _adornmentLayer.AddAdornment(AdornmentPositioningBehavior.ViewportRelative,
                 null, null, _columnsImage, null);
         }
