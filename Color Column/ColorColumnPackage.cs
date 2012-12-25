@@ -41,7 +41,6 @@ namespace ColorColumn
         /// </summary>
         public ColorColumnPackage()
         {
-            Debug.WriteLine(string.Format(CultureInfo.CurrentCulture, "Entering constructor for: {0}", this.ToString()));
         }
 
         /////////////////////////////////////////////////////////////////////////////
@@ -54,7 +53,6 @@ namespace ColorColumn
         /// </summary>
         protected override void Initialize()
         {
-            Debug.WriteLine(string.Format(CultureInfo.CurrentCulture, "Entering Initialize() of: {0}", this.ToString()));
             base.Initialize();
 
         }
