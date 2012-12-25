@@ -14,7 +14,7 @@ namespace ColorColumn
     [Name(ColorColumnTextFormat.name)]
     [DisplayName("Color columns")]
     [UserVisible(true)] //this should be visible to the end user
-    [Order(Before = Priority.Default)] //set the priority to be after the default classifiers
+    [Order(After=Priority.Default)]
     internal sealed class ColorColumnTextFormat : ClassificationFormatDefinition
     {
         public const string name = "ColorColumnTextFormat";

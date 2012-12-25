@@ -10,11 +10,12 @@ using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
 using Microsoft.VisualStudio.Text.Editor;
+using Microsoft.VisualStudio.Text.Formatting;
+using Microsoft.VisualStudio.Text.Tagging;
 using Microsoft.VisualStudio.Utilities;
 
 namespace ColorColumn
 {
-
     #region Classification type definition
     internal static class ColorColumnTextClassificationDefinition
     {
@@ -30,13 +31,10 @@ namespace ColorColumn
     #endregion
 
     #region Provider definition
-    /// <summary>
-    /// This class causes a classifier to be added to the set of classifiers. Since 
-    /// the content type is set to "text", this classifier applies to all text files
-    /// </summary>
-    [Export(typeof(IClassifierProvider))]
+    [Export(typeof(IViewTaggerProvider))]
     [ContentType("code")]
-    internal class ColorColumnTextClassifierProvider : IClassifierProvider
+    [TagType(typeof(ClassificationTag))]
+    internal class ColorColumnTaggerProvider : IViewTaggerProvider
     {
         /// <summary>
         /// Import the classification registry to be used for getting a reference
@@ -48,18 +46,25 @@ namespace ColorColumn
         [Import]
         internal SVsServiceProvider serviceProvider = null; // Set via MEF
 
-        public IClassifier GetClassifier(ITextBuffer buffer)
+        private ColorColumnPackage getPackage()
         {
             IVsPackage package; 
             var shell = (IVsShell)serviceProvider.GetService(typeof(SVsShell));
             Marshal.ThrowExceptionForHR(shell.LoadPackage(new Guid(GuidList.colorColumnPkgString), out package));
 
-            return buffer.Properties.GetOrCreateSingletonProperty<ColorColumnTextClassifier>(
-                delegate { return new ColorColumnTextClassifier(
-                    ClassificationRegistry,
-                    ((ColorColumnPackage)package).Settings,
-                    buffer
-                    ); });
+            return package as ColorColumnPackage;
+        }
+
+        private OptionsPage getSettings()
+        {
+            return getPackage().Settings;
+        }
+
+        public ITagger<T> CreateTagger<T>(ITextView textView, ITextBuffer buffer) where T : ITag
+        {
+            if (textView.TextBuffer != buffer) return null;
+            
+            return new ColorColumnTextClassifier(ClassificationRegistry, getSettings(), buffer, textView) as ITagger<T>;
         }
     }
     #endregion //provider def
@@ -68,27 +73,60 @@ namespace ColorColumn
     /// <summary>
     /// Classifier that classifies all text as an instance of the OrinaryClassifierType
     /// </summary>
-    class ColorColumnTextClassifier : IClassifier
+    class ColorColumnTextClassifier : ITagger<ClassificationTag>
     {
         // This event gets raised if a non-text change would affect the classification in some way,
         // for example typing /* would cause the classification to change in C# without directly
         // affecting the span.
         public event EventHandler<ClassificationChangedEventArgs> ClassificationChanged;
 
-        IClassificationType _classificationType;
         OptionsPage         _options;
         List<int>           _columns;
         ITextBuffer         _buffer;
+        ITextView           _view;
+        ClassificationTag   _tag;
+        object updateLock = new object();
 
-        internal ColorColumnTextClassifier(IClassificationTypeRegistryService registry, OptionsPage options, ITextBuffer buffer)
+        public event EventHandler<SnapshotSpanEventArgs> TagsChanged;
+
+        internal ColorColumnTextClassifier(IClassificationTypeRegistryService registry, OptionsPage options, ITextBuffer buffer, ITextView view)
         {
-            _classificationType = registry.GetClassificationType("Color Column Text");
+            _tag = new ClassificationTag(registry.GetClassificationType("Color Column Text"));
             _options = options;
             _columns = new List<int>();
             _buffer = buffer;
+            _view = view;
+
+            _view.LayoutChanged += _view_LayoutChanged;
 
             _options.PropertyChanged += _options_PropertyChanged;
             updateColumns();
+        }
+
+        void SynchronousUpdate(IEnumerable<SnapshotSpan> lines)
+        {
+            lock (updateLock)
+            {
+                List<Span> updated = new List<Span>();
+                   
+                var tempEvent = TagsChanged;
+                if (tempEvent != null) {
+                    foreach (var item in lines) {
+                        if (getCharAtColumn(item, _columns[0]).HasValue) {
+                            tempEvent(this, new SnapshotSpanEventArgs(item));
+                        }
+                    }
+                }
+            }
+        }
+
+        private void _view_LayoutChanged(object sender, TextViewLayoutChangedEventArgs e)
+        {
+            if (e.OldSnapshot != e.NewSnapshot)
+            {
+                SynchronousUpdate(from line in e.NewOrReformattedLines select line.Extent);
+            }
+
         }
 
         private void updateColumns()
@@ -106,52 +144,129 @@ namespace ColorColumn
             if (tmp != null)
             {
                 ITextSnapshot snapshot = _buffer.CurrentSnapshot;
-
-                //TODO: Keep the old columns value, and reclassify only the 
-                // lines that need to be reclassified.
                 tmp(this, new ClassificationChangedEventArgs(
                     new SnapshotSpan(snapshot, 0, snapshot.Length)));
             }
         }
 
-        private void classifyLine(ITextSnapshotLine line, List<ClassificationSpan> classifications)
+        private bool isNonSpacingCharacter(char c)
         {
-            foreach (var column in _columns)
+            // See https://github.com/jaredpar/VsVim/blob/master/VimCore/ColumnWiseUtil.fs
+            switch (System.Char.GetUnicodeCategory(c))
             {
-                if (column >= line.Length) break;
-
-                classifications.Add(new ClassificationSpan(new SnapshotSpan(line.Start.Add(column), 1), _classificationType));
+                case System.Globalization.UnicodeCategory.Control:
+                case System.Globalization.UnicodeCategory.NonSpacingMark:
+                case System.Globalization.UnicodeCategory.Format:
+                case System.Globalization.UnicodeCategory.EnclosingMark:
+                    return true;
+                default:
+                    return (c == '\u200b') || ('\u1160' <= c && c <= '\u11ff');
             }
         }
 
-        /// <summary>
-        /// This method scans the given SnapshotSpan for potential matches for this classification.
-        /// In this instance, it classifies everything and returns each span as a new ClassificationSpan.
-        /// </summary>
-        /// <param name="trackingSpan">The span currently being classified</param>
-        /// <returns>A list of ClassificationSpans that represent spans identified to be of this classification</returns>
-        public IList<ClassificationSpan> GetClassificationSpans(SnapshotSpan span)
+        private bool isWideCharacter(char c)
         {
-            //create a list to hold the results
-            List<ClassificationSpan> classifications = new List<ClassificationSpan>();
+            // See https://github.com/jaredpar/VsVim/blob/master/VimCore/ColumnWiseUtil.fs
+            return (c >= '\u1100' && (
+                // Hangul Jamo init. consonants
+                c <= '\u115f' || c == '\u2329' || c == '\u232a' ||
+                // CJK ... Yi
+                (c >= '\u2e80' && c <= '\ua4cf' && c != '\u303f') ||
+                // Hangul Syllables */
+                (c >= '\uac00' && c <= '\ud7a3') ||
+                // CJK Compatibility Ideographs
+                (c >= '\uf900' && c <= '\ufaff') ||
+                // Vertical forms
+                (c >= '\ufe10' && c <= '\ufe19') ||
+                // CJK Compatibility Forms
+                (c >= '\ufe30' && c <= '\ufe6f') ||
+                // Fullwidth Forms
+                (c >= '\uff00' && c <= '\uff60') ||
+                (c >= '\uffe0' && c <= '\uffe6')));
+                // FIXME: handle surrogate pairs
+        }
 
-            ITextSnapshot snapshot = span.Snapshot;
-
-            int start = snapshot.GetLineNumberFromPosition(span.Start);
-            int end = snapshot.GetLineNumberFromPosition(span.End) + 1;
-
-            for (int i = start; i != end; i++)
+        private int getCharacterWidth(char c)
+        {
+            switch (c)
             {
-                ITextSnapshotLine line = snapshot.GetLineFromLineNumber(i);
-                if (line.Length >= _columns[0])
+                case '\0': return 1;
+                case '\t':
+                    return _view.Options.GetOptionValue<int>(DefaultOptions.TabSizeOptionId);
+                default:
+                    if (isNonSpacingCharacter(c)) return 0;
+                    else if (isWideCharacter(c)) return 2;
+                    else return 1;
+            }
+        }
+
+        public SnapshotPoint? getCharAtColumn(SnapshotSpan line, int column)
+        {
+            ++column;
+
+            int current = 0;
+            SnapshotPoint result = line.Start;
+            int charwidth = 0;
+            
+            if (result != line.End) charwidth = getCharacterWidth(result.GetChar());
+
+            while (current + charwidth < column && result < line.End)
+            {
+                current += charwidth;
+                result = result.Add(1);
+
+                if (result < line.End)
                 {
-                    classifyLine(line, classifications);
+                    charwidth = getCharacterWidth(result.GetChar());
                 }
             }
 
-            return classifications;
+            if (result >= line.End) return null;
+            return result;
         }
 
+        private IEnumerable<ITextSnapshotLine> linesForSpan(SnapshotSpan span)
+        {
+            int firstLine = span.Snapshot.GetLineNumberFromPosition(span.Start);
+            int lastLine  = span.Snapshot.GetLineNumberFromPosition(span.End);
+
+            for (int i = firstLine; i <= lastLine; i++)
+            {
+                yield return span.Snapshot.GetLineFromLineNumber(i);
+            }
+        }
+
+        private IEnumerable<ITagSpan<ClassificationTag>> classifyLine(ITextSnapshotLine line, ClassificationTag tag)
+        {
+            SnapshotPoint? point = line.Start;
+            int lastColumn = 0;
+            foreach (var column in _columns)
+            {
+                point = getCharAtColumn(new SnapshotSpan(point.Value, line.End), column - lastColumn);
+                if (point == null) break;
+                lastColumn = column;
+
+                yield return new TagSpan<ClassificationTag>(new SnapshotSpan(point.Value, 1), tag);
+            }
+        }
+
+        private IEnumerable<ITagSpan<ClassificationTag>> classifyLines(SnapshotSpan span, ClassificationTag tag)
+        {
+            return from lin in linesForSpan(span)
+                   from taggedSpan in classifyLine(lin, tag)
+                   select taggedSpan;
+        }
+
+        public IEnumerable<ITagSpan<ClassificationTag>> GetTags(NormalizedSnapshotSpanCollection spans)
+        {
+            foreach (var span in spans)
+            {
+                foreach (var taggedSpan in classifyLines(span, _tag))
+                {
+                    yield return taggedSpan;
+                }
+            }
+        }
     }
     #endregion //Classifier
 }
