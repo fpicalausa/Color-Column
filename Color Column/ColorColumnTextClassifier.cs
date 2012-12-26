@@ -112,9 +112,7 @@ namespace ColorColumn
                 var tempEvent = TagsChanged;
                 if (tempEvent != null) {
                     foreach (var item in lines) {
-                        if (getCharAtColumn(item, _columns[0]).HasValue) {
-                            tempEvent(this, new SnapshotSpanEventArgs(item));
-                        }
+                        tempEvent(this, new SnapshotSpanEventArgs(item));
                     }
                 }
             }
