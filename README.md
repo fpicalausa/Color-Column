@@ -1,14 +1,14 @@
 Color Columns for Visual Studio 2012
 ====================================
 
-A visual studio extension to highlight user-defined columns.
+A visual studio extension to highlight columns in the text editor.
 
 Features
 --------
 
-* Colored columns at specific columns (ala set cc=80,120)
+* Colored columns at specific columns (a la set cc=80,120 in Vim)
 * Colored columns when word wrapping is enabled
-* Highlighting of the cursor column (ala set cuc)
+* Highlighting of the cursor column (a la set cuc in Vim)
 * Editable colors (through visual studio's colors settings)
 * An options page to set the columns that must be colored
 
@@ -20,7 +20,21 @@ Screenshot
 Hacking this extension
 ----------------------
 
-The highlighted columns are painted on two images by `Colorcolumn` objets. The
-images correspond to the user defined columns, and the current cursor column. 
-The `ColorColumnTextClassifier` is also used to classify characters that sit on
-the specified color columns, so that they get colored.
+The `ColorColumn` class contains the main logic for painting columns in the
+background of the code editor. For this purpose, it uses two images: one for  
+painting the user defined columns, and the other for the current cursor column. 
+
+The `ColorColumnTextClassifier.cs` file defines a classifier that recognize
+characters on the specified color columns. These characters are recognized
+(tagged) as `Color Column Text` to be colored by the editor.
+
+Revision History
+----------------
+
+- 1.0.1: Bug fixes
+
+ - Wide characters (such as full width characters) are now counted as taking two 
+   columns in the classification. This corresponds to the behaviour of Visual 
+   Studio when using hiragana with e.g. MS Gothic as the font. 
+
+- 1.0: Initial version
