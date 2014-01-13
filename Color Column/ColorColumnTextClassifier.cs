@@ -62,7 +62,7 @@ namespace ColorColumn
 
         public ITagger<T> CreateTagger<T>(ITextView textView, ITextBuffer buffer) where T : ITag
         {
-            if (textView.TextBuffer != buffer) return null;
+            if (textView == null || textView.TextBuffer != buffer) return null;
             
             return new ColorColumnTextClassifier(ClassificationRegistry, getSettings(), buffer, textView) as ITagger<T>;
         }
@@ -107,8 +107,6 @@ namespace ColorColumn
         {
             lock (updateLock)
             {
-                List<Span> updated = new List<Span>();
-                   
                 var tempEvent = TagsChanged;
                 if (tempEvent != null) {
                     foreach (var item in lines) {
@@ -147,7 +145,7 @@ namespace ColorColumn
             }
         }
 
-        private bool isNonSpacingCharacter(char c)
+        private static bool isNonSpacingCharacter(char c)
         {
             // See https://github.com/jaredpar/VsVim/blob/master/VimCore/ColumnWiseUtil.fs
             switch (System.Char.GetUnicodeCategory(c))
@@ -162,7 +160,7 @@ namespace ColorColumn
             }
         }
 
-        private bool isWideCharacter(char c)
+        private static bool isWideCharacter(char c)
         {
             // See https://github.com/jaredpar/VsVim/blob/master/VimCore/ColumnWiseUtil.fs
             return (c >= '\u1100' && (
